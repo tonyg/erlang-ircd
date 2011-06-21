@@ -5,9 +5,8 @@ library. The user supplies a callback module which the daemon uses to
 create and delete rooms, route messages etc.
 
 The code is embryonic at the moment: a stub callback module is
-implemented that doesn't actually create any shared rooms. A simple
-ETS- or Mnesia-based chat service would be straightforward to
-implement. It would also be interesting to have a callback module for
+implemented that uses a toy process-per-room implementation of shared
+rooms. It would also be interesting to have a callback module for
 routing messages into and out of RabbitMQ.
 
 ## Running the code

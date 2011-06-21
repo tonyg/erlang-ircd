@@ -42,6 +42,13 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
+    CallbackMod = irc_demo_callback,
+
+    ok = CallbackMod:start(),
+    ServerInfo = #irc_serverinfo{servername = "erlangIrcd",
+                                 callback_module = CallbackMod,
+                                 motd = ["Hello, world!"]},
+
     {ok, { {one_for_one, 5, 10},
            [
             {ircd_listener, {ircd_tcp_server, start_link,
@@ -50,9 +57,7 @@ init([]) ->
                                {active, true},
                                {packet, line},
                                {reuseaddr, true}],
-                              [#irc_serverinfo{servername = "erlangIrcd",
-                                               callback_module = irc_demo_callback,
-                                               motd = ["Hello, world!"]}]]},
+                              [ServerInfo]]},
              permanent, 5000, worker, [ircd_tcp_server, ircd_session]}
            ]} }.
 

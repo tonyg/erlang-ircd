@@ -52,18 +52,22 @@ callback(State = #state{server_info = #irc_serverinfo{callback_module = Mod},
                         callback_state = OldCS}, Op, Args) ->
     case OldCS of
         undefined when Op =/= login ->
-            State;
+            {ok, State}; %% TODO: better workflow
         _ ->
             case Mod:ircd_callback(Op, Args, OldCS) of
-                {noreply, NewCS} ->
-                    State#state{callback_state = NewCS}
+                {Result, NewCS} ->
+                    {Result, State#state{callback_state = NewCS}}
             end
     end.
+
+callback_discarding_result(State, Op, Args) ->
+    {_Result, NewState} = callback(State, Op, Args),
+    NewState.
 
 maybe_login(State = #state{nick = N, user = U, callback_state = undefined})
   when N =/= undefined andalso U =/= undefined ->
     send_motd(State),
-    callback(State, login, [N, U]);
+    callback_discarding_result(State, login, [N, U]);
 maybe_login(State) ->
     State.
 
@@ -76,40 +80,53 @@ send_motd(State = #state{server_info = #irc_serverinfo{servername = ServerName,
 
 handle_irc_message(#irc_message{command = "NICK", params = [Nick]},
                    State) ->
-    {noreply, callback(maybe_login(State#state{nick = Nick}),
-                       nick_change, [Nick])};
+    {noreply, callback_discarding_result(maybe_login(State#state{nick = Nick}),
+                                         nick_change, [Nick])};
 handle_irc_message(#irc_message{command = "USER", params = [U, H, S], trailing = R},
                    State) ->
     User = #irc_user{username = U, hostname = H, servername = S, realname = R},
-    {noreply, callback(maybe_login(State#state{user = User}),
-                       user_change, [User])};
+    {noreply, callback_discarding_result(maybe_login(State#state{user = User}),
+                                         user_change, [User])};
 handle_irc_message(#irc_message{command = "QUIT"},
                    State) ->
     {stop, normal, disconnect(State)};
 handle_irc_message(#irc_message{command = "JOIN", params = [Channels | MaybeKeys]},
-                   State) ->
-    {noreply, callback(State, join, [string:tokens(Channels, ","),
-                                     case MaybeKeys of
-                                         [] -> [];
-                                         [Keys] -> string:tokens(Keys, ",")
-                                     end])};
+                   State = #state{nick = Nick, socket = Sock}) ->
+    {ChannelInfo, NewState} =
+        callback(State, join, [string:tokens(Channels, ","),
+                               case MaybeKeys of
+                                   [] -> [];
+                                   [Keys] -> string:tokens(Keys, ",")
+                               end]),
+    [begin
+         internal_send(Sock, irc_message:reply('RPL_NAMREPLY', Nick, [Channel, Names])),
+         internal_send(Sock, irc_message:reply('RPL_ENDOFNAMES', Nick, [Channel])),
+         internal_send(Sock, irc_message:reply('RPL_TOPIC', Nick, [Channel, Topic]))
+     end || {Channel, Names, Topic} <- ChannelInfo],
+    {noreply, NewState};
 handle_irc_message(#irc_message{command = "PART", params = [Channels]},
                    State) ->
-    {noreply, callback(State, part, [string:tokens(Channels, ",")])};
+    {noreply, callback_discarding_result(State, part, [string:tokens(Channels, ",")])};
 handle_irc_message(#irc_message{command = "PRIVMSG", params = [Targets], trailing = Text},
                    State) ->
-    {noreply, callback(State, privmsg, [string:tokens(Targets, ","), Text])};
+    {noreply, callback_discarding_result(State, privmsg, [string:tokens(Targets, ","), Text])};
 handle_irc_message(Msg,
                    State) ->
     error_logger:info_report({ignored_command, Msg}),
     {noreply, State}.
 
-disconnect(State = #state{socket = Sock}) ->
+disconnect(State = #state{socket = Sock, callback_state = OldCS}) ->
     case Sock of
         undefined -> ok;
         _ -> gen_tcp:close(Sock)
     end,
-    callback(State#state{socket = undefined}, disconnect, []).
+    case OldCS of
+        undefined ->
+            State#state{socket = undefined};
+        _ ->
+            S = callback_discarding_result(State#state{socket = undefined}, disconnect, []),
+            S#state{callback_state = undefined}
+    end.
 
 %%---------------------------------------------------------------------------
 
