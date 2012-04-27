@@ -138,7 +138,7 @@ terminate(_Reason, State) ->
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
-    State.
+    {ok, State}.
 
 handle_call(_Request, _From, State) ->
     {stop, {bad_call, _Request}, State}.
