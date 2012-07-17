@@ -156,7 +156,7 @@ handle_callback(join, [Channels, _Keys], State = #state{nick = Nick}) ->
           Pid = get_channel(Channel),
           Pid ! {join, Nick, self()},
           {ok, {channel_members, Channel, Bindings}} = channel_rpc(Pid, members),
-          {Channel, [Nick || #binding{nick = Nick} <- Bindings], "Topics not yet supported"}
+          {Channel, [N || #binding{nick = N} <- Bindings], "Topics not yet supported"}
       end || Channel <- Channels], State};
 handle_callback(part, [Channels], State = #state{nick = Nick}) ->
     [begin
